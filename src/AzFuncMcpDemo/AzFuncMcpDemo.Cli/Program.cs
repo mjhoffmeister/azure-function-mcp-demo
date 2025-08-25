@@ -1,39 +1,30 @@
 ﻿using Azure.Identity;
 using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.DependencyInjection;
 using Microsoft.SemanticKernel;
 using Microsoft.SemanticKernel.ChatCompletion;
+using Microsoft.SemanticKernel.Agents;
 using Microsoft.SemanticKernel.Connectors.OpenAI;
 using ModelContextProtocol.SemanticKernel.Extensions;
+using AzFuncMcpDemo.Cli;
 
 // Spell Chat CLI using Semantic Kernel + Azure OpenAI + MCP tools from a local
 // Function app
 
 // Load configuration from appsettings.json and/or environment variables
-const string KeyAoaiEndpoint = "AZURE_OPENAI_ENDPOINT";
-const string KeyAoaiDeployment = "AZURE_OPENAI_DEPLOYMENT";
-const string KeyMcpSseUrl = "MCP_SSE_URL";
 IConfiguration config = new ConfigurationBuilder()
     .SetBasePath(AppContext.BaseDirectory)
     .AddJsonFile("appsettings.json", optional: true, reloadOnChange: false)
     .AddEnvironmentVariables()
     .Build();
 
-string azureOpenAiEndpoint = GetRequiredConfigValue(
-    config[KeyAoaiEndpoint], KeyAoaiEndpoint).TrimEnd('/');
-
-string azureOpenAiDeployment = GetRequiredConfigValue(
-    config[KeyAoaiDeployment], KeyAoaiDeployment);
-
-string mcpSseUrl = GetRequiredConfigValue(
-    config[KeyMcpSseUrl], KeyMcpSseUrl).Trim();
+SpellChatConfig appConfig = SpellChatConfig.Load(config);
 
 // Build Kernel with Azure OpenAI chat completion using DefaultAzureCredential
 DefaultAzureCredential credential = new();
 IKernelBuilder builder = Kernel.CreateBuilder();
 builder.AddAzureOpenAIChatCompletion(
-    deploymentName: azureOpenAiDeployment,
-    endpoint: azureOpenAiEndpoint,
+    deploymentName: appConfig.AzureOpenAiDeployment,
+    endpoint: appConfig.AzureOpenAiEndpoint,
     credentials: credential);
 
 Kernel kernel = builder.Build();
@@ -50,7 +41,9 @@ Console.CancelKeyPress += (s, e) =>
 try
 {
     await kernel.Plugins.AddMcpFunctionsFromSseServerAsync(
-        "SpellTools", new Uri(mcpSseUrl), cancellationToken: cts.Token);
+        "SpellTools",
+        new Uri(appConfig.McpSseUrl),
+        cancellationToken: cts.Token);
 
     Console.WriteLine(
         "Imported MCP tools from SSE server into kernel (plugin: SpellTools)");
@@ -59,7 +52,7 @@ catch (Exception ex)
 {
     Console.WriteLine(
         "[error] Failed to import MCP tools over SSE.\n" +
-        $"URL: {mcpSseUrl}\n" +
+        $"URL: {appConfig.McpSseUrl}\n" +
         "Tips: Ensure the Functions host is running and the route is the \n" +
         "runtime/webhooks variant. " +
         "Example: http://localhost:7071/runtime/webhooks/mcp/sse\n" +
@@ -68,22 +61,20 @@ catch (Exception ex)
     return;
 }
 
-// Add chat completion
-IChatCompletionService chat = kernel
-    .GetRequiredService<IChatCompletionService>();
-
-ChatHistory history = new();
-
-// Provide a concise system prompt guiding the model to use tools
-history.AddSystemMessage(
-    "You are SpellChat. Be concise. When the user asks to save, retrieve, or " +
-    "list spells, use the available tools (saveSpell, getSpell, listSpells). " +
-    "Prefer tool results over speculation.");
-
-OpenAIPromptExecutionSettings executionSettings = new()
+// Create ChatCompletionAgent with concise instructions and auto tool invocation
+ChatCompletionAgent agent = new()
 {
-    ToolCallBehavior = ToolCallBehavior.AutoInvokeKernelFunctions,
+    Name = "SpellChat",
+    Instructions =
+        "You are SpellChat. Be concise. When the user asks to save, " +
+        "retrieve, or list spells, you MUST call the appropriate tool " +
+        "(saveSpell, getSpell, listSpells) instead of describing the action. " +
+        "Prefer tool results over speculation.",
+    Kernel = kernel
 };
+
+// Maintain a single conversation thread across turns
+AgentThread thread = new ChatHistoryAgentThread();
 
 Console.WriteLine("Type your message. Type 'help' for tips, 'exit' to quit.\n");
 
@@ -108,21 +99,27 @@ while (!cts.IsCancellationRequested)
         continue;
     }
 
-    history.AddUserMessage(input);
-
     try
     {
-        IReadOnlyList<ChatMessageContent> result = await chat
-            .GetChatMessageContentsAsync(
-                history, executionSettings, kernel, cts.Token);
-
-        // Append assistant messages to history and print response
-        foreach (ChatMessageContent message in result)
+        // Configure auto function-calling and invoke the agent with the user's
+        // message
+        OpenAIPromptExecutionSettings exec = new()
         {
-            if (!string.IsNullOrWhiteSpace(message.Content))
+            FunctionChoiceBehavior = FunctionChoiceBehavior.Auto()
+        };
+
+        KernelArguments kernelArgs = new(exec);
+        AgentInvokeOptions options = new() { KernelArguments = kernelArgs };
+
+        ChatMessageContent userMessage = new(AuthorRole.User, input);
+
+        await foreach (var response in agent.InvokeAsync(
+            userMessage, thread, options, cts.Token))
+        {
+            ChatMessageContent? msg = response.Message;
+            if (!string.IsNullOrWhiteSpace(msg?.Content))
             {
-                Console.WriteLine(message.Content);
-                history.AddAssistantMessage(message.Content);
+                Console.WriteLine(msg.Content);
             }
         }
     }
@@ -130,19 +127,4 @@ while (!cts.IsCancellationRequested)
     {
         Console.WriteLine($"[error] {ex.Message}");
     }
-}
-
-/// <summary>
-/// Gets a required configuration value, throwing an exception if not found.
-/// </summary>
-static string GetRequiredConfigValue(string? value, string key)
-{
-    if (string.IsNullOrWhiteSpace(value))
-    {
-        throw new InvalidOperationException(
-            $"Missing required configuration: {key}. Provide it in " +
-            "appsettings.json or as an environment variable.");
-    }
-
-    return value;
 }
