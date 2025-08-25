@@ -33,6 +33,6 @@ public sealed class ListSpellsFunction(
         }
 
         // Return the domain spells directly for simplicity in the demo
-            return new ListSpellsResponse { Spells = spells };
+        return new ListSpellsResponse { Spells = spells };
     }
 }
