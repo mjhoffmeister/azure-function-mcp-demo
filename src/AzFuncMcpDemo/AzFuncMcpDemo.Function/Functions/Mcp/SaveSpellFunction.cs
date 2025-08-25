@@ -13,7 +13,6 @@ public sealed class SaveSpellFunction(ILogger<SaveSpellFunction> logger, ISpellR
 {
     private const string ToolName = "saveSpell";
     private const string ToolDescription = "Save a spell with a name, incantation, and effect.";
-
     private const string NameProp = "name";
     private const string IncantationProp = "incantation";
     private const string EffectProp = "effect";
