@@ -1,4 +1,4 @@
-# Azure Function MCP Demo
+# Azure Functions MCP Demo
 
 A minimal demo showing how a .NET Azure Functions app exposes Model Context
 Protocol (MCP) tools over Server‑Sent Events (SSE), and a .NET CLI that uses
