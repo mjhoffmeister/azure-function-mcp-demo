@@ -10,7 +10,7 @@ namespace AzFuncMcpDemo.Functions.Mcp;
 /// </summary>
 public sealed class GetSpellFunction(ILogger<GetSpellFunction> logger, ISpellRepository repository)
 {
-    private const string ToolName = "getSpell";
+    private const string ToolName = "get_spell";
     private const string ToolDescription = "Retrieve a spell by name.";
     private const string NameProp = "name";
 

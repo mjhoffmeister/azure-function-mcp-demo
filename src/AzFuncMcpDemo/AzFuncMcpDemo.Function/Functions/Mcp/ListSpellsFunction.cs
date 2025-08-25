@@ -11,7 +11,7 @@ namespace AzFuncMcpDemo.Functions.Mcp;
 public sealed class ListSpellsFunction(
     ILogger<ListSpellsFunction> logger, ISpellRepository repository)
 {
-    private const string ToolName = "listSpells";
+    private const string ToolName = "list_spells";
     private const string ToolDescription = "List all available spells.";
 
     [Function("ListSpells")]

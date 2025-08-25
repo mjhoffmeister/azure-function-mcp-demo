@@ -11,7 +11,7 @@ namespace AzFuncMcpDemo.Functions.Mcp;
 /// </summary>
 public sealed class SaveSpellFunction(ILogger<SaveSpellFunction> logger, ISpellRepository repository)
 {
-    private const string ToolName = "saveSpell";
+    private const string ToolName = "save_spell";
     private const string ToolDescription = "Save a spell with a name, incantation, and effect.";
     private const string NameProp = "name";
     private const string IncantationProp = "incantation";
